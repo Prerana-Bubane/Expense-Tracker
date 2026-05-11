@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "../context/AuthContext";
 
+
 const CATEGORIES = {
   income:  ["Salary", "Freelance", "Investment", "Business", "Gift", "Other"],
   expense: ["Food", "Rent", "Utilities", "Transport", "Healthcare", "Shopping", "Entertainment", "Education", "Other"],
@@ -17,6 +18,7 @@ const EMPTY_FORM = { title: "", amount: "", type: "expense", category: "Food", d
 const TransactionsPage = () => {
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter]   = useState("All");
+  const [search,setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
@@ -93,10 +95,16 @@ const TransactionsPage = () => {
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const filtered = transactions.filter((t) => {
-    if (filter === "Income")  return t.type === "income";
-    if (filter === "Expense") return t.type === "expense";
-    return true;
-  });
+  const matchesType =
+    filter === "Income"  ? t.type === "income"  :
+    filter === "Expense" ? t.type === "expense" : true;
+
+  const matchesSearch = t.title
+    .toLowerCase()
+    .includes(search.toLowerCase());
+
+  return matchesType && matchesSearch;
+});
 
   const totalIncome  = transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
   const totalExpense = transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
@@ -462,6 +470,28 @@ const TransactionsPage = () => {
             </form>
           </div>
         )}
+
+        {/* Search bar */}
+<div style={{ marginBottom: 12 }}>
+  <input
+    type="text"
+    placeholder="Search transactions..."
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+    style={{
+      width: "100%",
+      padding: "10px 14px",
+      border: "1.5px solid #e8e8e5",
+      borderRadius: 10,
+      fontSize: 14,
+      fontFamily: "'DM Sans', sans-serif",
+      outline: "none",
+      background: "#fafaf9",
+      color: "#1a1a1a",
+      boxSizing: "border-box",
+    }}
+  />
+</div>
 
         {/* Filter pills */}
         <div className="tx-filters">
