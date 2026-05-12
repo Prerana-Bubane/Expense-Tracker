@@ -93,6 +93,35 @@ const TransactionsPage = () => {
     }
   };
 
+  const exportCSV = () => {
+  // 1. Define column headers
+  const headers = ["Title", "Amount (₹)", "Type", "Category", "Date", "Note"];
+
+  // 2. Convert each transaction to a CSV row
+  const rows = transactions.map((t) => [
+    t.title,
+    t.amount,
+    t.type,
+    t.category,
+    new Date(t.date).toLocaleDateString("en-IN"),
+    t.note || "",
+  ]);
+
+  // 3. Combine headers + rows into CSV string
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${cell}"`).join(","))
+    .join("\n");
+
+  // 4. Create a downloadable file and trigger browser download
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href     = url;
+  link.download = `transactions_${new Date().toLocaleDateString("en-IN").replace(/\//g, "-")}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
   // ── Derived data ──────────────────────────────────────────────────────────
   const filtered = transactions.filter((t) => {
   const matchesType =
@@ -365,6 +394,45 @@ const TransactionsPage = () => {
             {showForm ? "✕ Cancel" : "+ Add transaction"}
           </button>
         </div>
+
+        {/* Header */}
+<div className="tx-header">
+  <div>
+    <h1>Transactions</h1>
+    <div className="tx-header-sub">
+      {transactions.length} transaction{transactions.length !== 1 ? "s" : ""} recorded
+    </div>
+  </div>
+
+  {/* ← Button row — both buttons side by side */}
+  <div style={{ display: "flex", gap: 8 }}>
+    <button
+      onClick={exportCSV}
+      disabled={transactions.length === 0}
+      style={{
+        padding: "10px 18px",
+        background: "none",
+        border: "1.5px solid #e8e8e5",
+        borderRadius: 10,
+        fontSize: 13,
+        fontWeight: 500,
+        fontFamily: "'DM Sans', sans-serif",
+        cursor: transactions.length === 0 ? "not-allowed" : "pointer",
+        color: transactions.length === 0 ? "#ccc" : "#555",
+        transition: "all 0.13s",
+        whiteSpace: "nowrap",
+      }}
+    >
+      ↓ Export CSV
+    </button>
+    <button
+      className={`tx-add-btn ${showForm ? "open" : ""}`}
+      onClick={() => { setShowForm(f => !f); setFormError(""); setFormSuccess(""); }}
+    >
+      {showForm ? "✕ Cancel" : "+ Add transaction"}
+    </button>
+  </div>
+</div>
 
         {/* Summary */}
         <div className="tx-summary">
