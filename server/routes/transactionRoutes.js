@@ -1,35 +1,27 @@
 const express = require("express");
-const router = express.Router();
+const router  = express.Router();
 const Transaction = require("../models/Transaction");
 const protect = require("../middleware/auth");
 
-// Apply JWT auth middleware to ALL routes in this file
 router.use(protect);
 
-// ─── GET /api/transactions ────────────────────────────────────────────────────
-// Fetch all transactions for the logged-in user.
-// Supports optional query filters: ?type=income|expense&category=Food&month=4&year=2024
+// ── GET /api/transactions ─────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
     const { type, category, month, year } = req.query;
-
-    // Always filter by the logged-in user — users never see each other's data
     const filter = { userId: req.user.id };
-
     if (type)     filter.type = type;
     if (category) filter.category = category;
-
-    // Filter by month + year if provided (used by the month picker on dashboard)
     if (month && year) {
-      const start = new Date(year, month - 1, 1);        // e.g. April 1
-      const end   = new Date(year, month, 0, 23, 59, 59); // e.g. April 30
+      const start = new Date(year, month - 1, 1);
+      const end   = new Date(year, month, 0, 23, 59, 59);
+      filter.date = { $gte: start, $lte: end };
+    } else if (year) {
+      const start = new Date(year, 0, 1);
+      const end   = new Date(year, 11, 31, 23, 59, 59);
       filter.date = { $gte: start, $lte: end };
     }
-
-    const transactions = await Transaction.find(filter)
-      .sort({ date: -1 })   // newest first
-      .lean();               // plain JS objects — faster than Mongoose documents
-
+    const transactions = await Transaction.find(filter).sort({ date: -1 }).lean();
     res.json({ success: true, count: transactions.length, transactions });
   } catch (error) {
     console.error("GET /transactions error:", error.message);
@@ -37,14 +29,33 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ─── GET /api/transactions/summary ───────────────────────────────────────────
-// Returns { income, expense, balance } for the logged-in user.
-// Uses the getSummary() aggregation we defined in Transaction.js.
-// NOTE: This route must be defined BEFORE /:id to avoid "summary" being
-// treated as an id parameter.
+// ── GET /api/transactions/summary ─────────────────────────────────────────────
+// Supports ?month=4&year=2024 for filtered summary
 router.get("/summary", async (req, res) => {
   try {
-    const summary = await Transaction.getSummary(req.user.id);
+    const { month, year } = req.query;
+    const mongoose = require("mongoose");
+    const matchStage = { userId: new mongoose.Types.ObjectId(req.user.id) };
+
+    if (month && year) {
+      const start = new Date(year, month - 1, 1);
+      const end   = new Date(year, month, 0, 23, 59, 59);
+      matchStage.date = { $gte: start, $lte: end };
+    } else if (year) {
+      const start = new Date(year, 0, 1);
+      const end   = new Date(year, 11, 31, 23, 59, 59);
+      matchStage.date = { $gte: start, $lte: end };
+    }
+
+    const result = await Transaction.aggregate([
+      { $match: matchStage },
+      { $group: { _id: "$type", total: { $sum: "$amount" } } },
+    ]);
+
+    const summary = { income: 0, expense: 0, balance: 0 };
+    result.forEach(({ _id, total }) => { summary[_id] = total; });
+    summary.balance = summary.income - summary.expense;
+
     res.json({ success: true, summary });
   } catch (error) {
     console.error("GET /transactions/summary error:", error.message);
@@ -52,8 +63,7 @@ router.get("/summary", async (req, res) => {
   }
 });
 
-// ─── GET /api/transactions/monthly ───────────────────────────────────────────
-// Returns monthly income vs expense breakdown — fed directly into BarChart.
+// ── GET /api/transactions/monthly ─────────────────────────────────────────────
 router.get("/monthly", async (req, res) => {
   try {
     const monthly = await Transaction.getMonthlyData(req.user.id);
@@ -64,35 +74,19 @@ router.get("/monthly", async (req, res) => {
   }
 });
 
-// ─── POST /api/transactions ───────────────────────────────────────────────────
-// Create a new transaction for the logged-in user.
-// Body: { title, amount, type, category, date?, note? }
+// ── POST /api/transactions ─────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   try {
     const { title, amount, type, category, date, note } = req.body;
-
-    // Basic validation — Mongoose schema will also validate, but
-    // catching this early gives a cleaner error message to the frontend
     if (!title || !amount || !type || !category) {
-      return res.status(400).json({
-        success: false,
-        message: "title, amount, type, and category are required",
-      });
+      return res.status(400).json({ success: false, message: "title, amount, type, and category are required" });
     }
-
     const transaction = await Transaction.create({
-      userId: req.user.id,   // always taken from the token, never from the body
-      title,
-      amount,
-      type,
-      category,
-      date: date || Date.now(),
-      note: note || "",
+      userId: req.user.id, title, amount, type, category,
+      date: date || Date.now(), note: note || "",
     });
-
     res.status(201).json({ success: true, transaction });
   } catch (error) {
-    // Mongoose validation errors (e.g. invalid category enum)
     if (error.name === "ValidationError") {
       const messages = Object.values(error.errors).map((e) => e.message);
       return res.status(400).json({ success: false, message: messages.join(", ") });
@@ -102,27 +96,19 @@ router.post("/", async (req, res) => {
   }
 });
 
-// ─── DELETE /api/transactions/:id ─────────────────────────────────────────────
-// Delete a single transaction by its MongoDB _id.
-// Verifies the transaction belongs to the logged-in user before deleting.
+// ── DELETE /api/transactions/:id ──────────────────────────────────────────────
 router.delete("/:id", async (req, res) => {
   try {
     const transaction = await Transaction.findById(req.params.id);
-
     if (!transaction) {
       return res.status(404).json({ success: false, message: "Transaction not found" });
     }
-
-    // Ownership check — prevent user A from deleting user B's transactions
-    if (transaction.userId.toString() !== req.user.id) {
+    if (transaction.userId.toString() !== req.user.id.toString()) {
       return res.status(403).json({ success: false, message: "Not authorized" });
     }
-
     await transaction.deleteOne();
-
     res.json({ success: true, message: "Transaction deleted", id: req.params.id });
   } catch (error) {
-    // CastError happens when :id is not a valid MongoDB ObjectId
     if (error.name === "CastError") {
       return res.status(400).json({ success: false, message: "Invalid transaction ID" });
     }
