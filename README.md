@@ -16,3 +16,10 @@ A backend REST API to track your daily expenses. You can add, view, update, dele
 - **MongoDB Atlas**  — Cloud database
 - **Mongoose** — ORM
 - **dotenv** — Environment config
+
+## Project Structure
+expense-tracker/
+├── client
+├── server        
+
+
