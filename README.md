@@ -15,4 +15,4 @@ A backend REST API to track your daily expenses. You can add, view, update, dele
 - **Node.js + Express** — Backend server
 - **MongoDB Atlas**  — Cloud database
 - **Mongoose** — ORM
--**dotenv** — Environment config
+- **dotenv** — Environment config
